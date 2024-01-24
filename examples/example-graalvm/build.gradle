@@ -1,0 +1,133 @@
+plugins {
+    id 'application' // Provide convenience executables for trying out the examples.
+    id 'java'
+    id 'native-config-removal' // To remove problematic native image configuration in dependency JAR
+
+    id 'org.graalvm.buildtools.native' version '0.9.28'
+    id "com.google.protobuf" version "0.9.4"
+    id 'com.google.cloud.tools.jib' version '3.3.2' // For releasing to Docker Hub
+}
+
+// Repository directory that contains the JAR with native image configuration removed
+def workaroundRepoDir = new File("${project.buildDir}/repo").absolutePath
+
+repositories {
+    maven {
+        url "file:///${workaroundRepoDir}"
+        content {
+            // Only search for the specific JAR in this repository
+            includeModule('io.grpc', 'grpc-netty-shaded')
+        }
+    }
+    maven { // The google mirror is less flaky than mavenCentral()
+        url "https://maven-central.storage-download.googleapis.com/maven2/" }
+    mavenCentral()
+    mavenLocal()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// IMPORTANT: You probably want the non-SNAPSHOT version of gRPC. Make sure you
+// are looking at a tagged version of the example and not "master"!
+
+// Feel free to delete the comment at the next line. It is just for safely
+// updating the version in our release process.
+// def grpcVersion = '1.61.1-SNAPSHOT' // CURRENT_GRPC_VERSION
+def grpcVersion = '1.61.0'
+def protobufVersion = '3.25.1'
+
+dependencies {
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    implementation "io.grpc:grpc-services:${grpcVersion}"
+    compileOnly "org.apache.tomcat:annotations-api:6.0.53"
+    runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation "io.grpc:grpc-testing:${grpcVersion}"
+    testImplementation "io.grpc:grpc-inprocess:${grpcVersion}"
+}
+
+protobuf {
+  protoc {
+    artifact = "com.google.protobuf:protoc:${protobufVersion}"
+  }
+  plugins {
+    grpc {
+      artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}"
+    }
+  }
+  generateProtoTasks {
+    all()*.plugins {
+      grpc {}
+    }
+  }
+}
+
+applicationName = 'hostname-server'
+mainClassName = 'io.grpc.examples.hostname.HostnameServer'
+
+graalvmNative {
+    binaries {
+        main {
+            // Select the specific toolchain
+            javaLauncher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(21)
+                vendor = JvmVendorSpec.matching("Oracle Corporation")
+            }
+            // The name of the native image, defaults to the project name
+            imageName = applicationName
+            // Add verbose output, defaults to false
+            verbose = true
+            // Use the quick build mode ('-Ob') to speed up builds during development
+            quickBuild = true
+            // Native image configuration file directory
+            // Add reachability metadata for grpc-netty-shaded from GraalVM Reachability Metadata Repository (https://github.com/oracle/graalvm-reachability-metadata)
+            configurationFileDirectories.from(file('src/config'))
+            // Arguments to the native-image tool at build time
+            // buildArgs.add('')
+            // Arguments to the built image during 'nativeRun' task
+            // runtimeArgs.add("-Djava.library.path=${rootDir}")
+        }
+    }
+}
+
+distributions {
+    nativeImage {
+        distributionBaseName = 'native'
+        contents {
+            from("${buildDir}/native/nativeCompile")
+        }
+    }
+}
+
+tasks.named('installNativeImageDist') {
+    dependsOn tasks.named('nativeCompile')
+}
+
+// For removing problematic native image configuration in JAR
+jarToRemoveNativeConfig {
+    group = 'io.grpc'
+    baseName = 'grpc-netty-shaded'
+    version = grpcVersion
+}
+
+// Make sure the repository with modified JAR is created before build
+processResources.configure {
+    dependsOn tasks.named('createRepository')
+}
+
+// For releasing to Docker Hub
+jib {
+  from.image = "gcr.io/distroless/java17-debian12"
+  container.ports = ['50051']
+  outputPaths {
+    tar = 'build/example-hostname.tar'
+    digest = 'build/example-hostname.digest'
+    imageId = 'build/example-hostname.id'
+  }
+}
