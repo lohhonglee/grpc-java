@@ -1,5 +1,8 @@
-gRPC Hostname Example
-=====================
+gRPC Hostname Example with GraalVM
+==================================
+
+This example shows how to build the hostname example into a native application
+using GraalVM's `native-image` tool.
 
 The hostname example is a Hello World server whose response includes its
 hostname. It also supports health and reflection services. This makes it a good
@@ -33,7 +36,7 @@ And in a different terminal window run the hello-world client:
 $ ../build/install/examples/bin/hello-world-client
 ```
 
-### Maven (not supported yet)
+### Maven (not updated to support GraalVM compilation yet)
 
 If you prefer to use Maven:
 1. Build the hello-world example client. See [the examples README](../README.md)
@@ -48,7 +51,7 @@ $ cd ..
 $ mvn exec:java -Dexec.mainClass=io.grpc.examples.helloworld.HelloWorldClient
 ```
 
-### Bazel (not supported yet)
+### Bazel (not updated to support GraalVM compilation yet)
 
 If you prefer to use Bazel, run from the `grpc-java/examples` directory:
 ```
